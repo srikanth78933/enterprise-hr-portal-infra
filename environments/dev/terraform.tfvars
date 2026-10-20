@@ -57,3 +57,7 @@ enable_waf = false
 #   exports   = { versioning = false, force_destroy = true }
 # }
 s3_buckets = {}
+
+# ---------------- Monitoring ----------------
+# ELK runs in prod only
+enable_elk = false

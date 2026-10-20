@@ -143,3 +143,28 @@ variable "s3_buckets" {
     error_message = "S3 bucket keys must be 1-20 characters: lowercase letters, digits and hyphens."
   }
 }
+
+# ---------------------------------------------------------------
+# ELK monitoring server (one EC2, prod only)
+# ---------------------------------------------------------------
+variable "enable_elk" {
+  type    = bool
+  default = false
+}
+
+variable "elk_instance_type" {
+  type    = string
+  default = "m7i.xlarge"
+}
+
+variable "elk_data_volume_size" {
+  description = "GiB of EBS storage for Elasticsearch data"
+  type        = number
+  default     = 100
+}
+
+variable "kibana_allowed_cidrs" {
+  description = "CIDRs allowed to open Kibana"
+  type        = list(string)
+  default     = []
+}

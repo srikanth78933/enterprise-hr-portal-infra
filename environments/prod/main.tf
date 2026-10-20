@@ -150,3 +150,24 @@ module "waf" {
 
   name = "${local.name}-web-acl"
 }
+
+# ---------------------------------------------------------------
+# Monitoring: ELK on one EC2 instance (enable_elk = true in prod only)
+# The stack is deployed by the enterprise-hr-portal-monitoring repo.
+# ---------------------------------------------------------------
+module "elk" {
+  source = "../../modules/elk-ec2"
+  count  = var.enable_elk ? 1 : 0
+
+  name                      = "${local.name}-elk"
+  short_name                = "hrp-${var.environment}-kibana"
+  vpc_id                    = module.vpc.vpc_id
+  subnet_id                 = module.vpc.compute_subnet_ids[0]
+  alb_subnet_ids            = module.vpc.frontend_subnet_ids
+  client_security_group_ids = [module.eks.cluster_security_group_id]
+  kibana_allowed_cidrs      = var.kibana_allowed_cidrs
+  instance_type             = var.elk_instance_type
+  data_volume_size          = var.elk_data_volume_size
+  config_bucket_name        = "${local.name}-elk-config-${data.aws_caller_identity.current.account_id}"
+  secret_name               = "${var.project}/${var.environment}/elk"
+}

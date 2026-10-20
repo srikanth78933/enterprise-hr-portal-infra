@@ -50,3 +50,14 @@ output "deploy_repo_values" {
     "Jenkinsfile -> EKS_CLUSTER (for ${var.environment})"                   = module.eks.cluster_name
   }
 }
+
+output "elk" {
+  description = "ELK monitoring server (prod only)"
+  value = var.enable_elk ? {
+    instance_id   = module.elk[0].instance_id
+    private_ip    = module.elk[0].private_ip
+    kibana_url    = module.elk[0].kibana_url
+    config_bucket = module.elk[0].config_bucket
+    secret_name   = module.elk[0].secret_name
+  } : null
+}

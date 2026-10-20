@@ -28,6 +28,7 @@ enterprise-hr-portal-infra/
 │   ├── eks-addons/   Helm: AWS Load Balancer Controller, Secrets Store CSI + AWS provider,
 │   │                 metrics-server, Cluster Autoscaler
 │   ├── waf/          WAF web ACL (managed rules + rate limit) for the ALB
+│   ├── elk-ec2/      ELK monitoring server: EC2, data volume, passwords, config bucket, Kibana ALB
 │   └── s3/           Private, encrypted, HTTPS-only S3 bucket (state bucket and app buckets)
 └── environments/                 One folder = one environment = one state file
     ├── dev/   backend.tf  providers.tf  main.tf  variables.tf  outputs.tf  terraform.tfvars
@@ -47,6 +48,7 @@ enterprise-hr-portal-infra/
 | Database | RDS PostgreSQL 16 (encrypted, private), DB subnet group, security group allowing 5432 only from EKS, Secrets Manager secret `enterprise-hr-portal/<env>/db` |
 | Edge     | WAF web ACL (prod), attached to the ALB through the app's Ingress annotation |
 | Storage  | Optional S3 buckets from `s3_buckets` in `terraform.tfvars` (none by default) |
+| Monitoring (prod) | ELK EC2 instance (private, SSM only), encrypted EBS data volume, passwords in Secrets Manager, config bucket, Kibana ALB limited to `kibana_allowed_cidrs` |
 
 ### dev vs prod (`terraform.tfvars`)
 
@@ -59,6 +61,7 @@ enterprise-hr-portal-infra/
 | Nodes                | `t3.medium`, 1–2         | `m7i.large`, 2–4             |
 | RDS                  | `db.t4g.micro`, single-AZ | `db.t4g.medium`, Multi-AZ, deletion protection, final snapshot |
 | WAF                  | off                      | on                           |
+| ELK monitoring EC2   | off                      | `m7i.xlarge`, 100 GiB data   |
 
 ### Subnet plan (prod; dev uses `10.1.x.x`)
 
@@ -202,6 +205,25 @@ disabled. The real name is `enterprise-hr-portal-<env>-<key>-<account-id>`
 
 If the application starts using a bucket, add its name to `config/env-<env>.yaml` in the deploy repo,
 for example `DOCUMENTS_BUCKET: "enterprise-hr-portal-dev-documents-<account-id>"`.
+
+## ELK monitoring server (prod)
+
+With `enable_elk = true` (prod), Terraform creates everything the
+[monitoring repo](https://github.com/srikanth78933/enterprise-hr-portal-monitoring) needs:
+
+| Resource | Details |
+|----------|---------|
+| EC2 `enterprise-hr-portal-prod-elk` | Ubuntu 24.04, `m7i.xlarge`, first compute subnet, no public IP, IMDSv2, Docker + Compose + AWS CLI installed by user data |
+| Data volume | Encrypted gp3 EBS (100 GiB) mounted at `/data`; kept if the instance is replaced |
+| Access | SSM Session Manager only (no SSH, no key pair) |
+| Security groups | 5044 (Logstash) and 9200 (Elasticsearch) from the EKS nodes only; 5601 from the Kibana ALB only |
+| Kibana ALB `hrp-prod-kibana` | Public, open only to `kibana_allowed_cidrs`; HTTPS when a certificate ARN is passed to the module |
+| Secret `enterprise-hr-portal/prod/elk` | Generated passwords for `elastic`, `kibana_system`, `logstash_writer`, `metricbeat_writer` and the Kibana encryption key |
+| Bucket `enterprise-hr-portal-prod-elk-config-<account-id>` | Jenkins uploads the stack's config here; the instance downloads it |
+
+Set `kibana_allowed_cidrs` in `environments/prod/terraform.tfvars` to your own IP before applying.
+After `terraform apply`, `terraform output elk` shows the instance ID, private IP and Kibana URL.
+The monitoring repo's Jenkinsfile finds the instance by its `Name` tag, so nothing needs to be copied.
 
 ## Database credentials
 

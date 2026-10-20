@@ -57,3 +57,10 @@ enable_waf = true
 #   exports   = { versioning = false, force_destroy = false }
 # }
 s3_buckets = {}
+
+# ---------------- Monitoring (ELK on one EC2) ----------------
+enable_elk           = true
+elk_instance_type    = "m7i.xlarge"
+elk_data_volume_size = 100
+# CHANGE ME: who may open Kibana, e.g. ["<your-ip>/32"]
+kibana_allowed_cidrs = ["0.0.0.0/0"]
