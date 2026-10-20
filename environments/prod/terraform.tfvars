@@ -1,0 +1,48 @@
+# ===============================================================
+# PROD environment
+# ===============================================================
+project     = "enterprise-hr-portal"
+environment = "prod"
+region      = "ap-south-1"
+azs         = ["ap-south-1a", "ap-south-1b"]
+
+# ---------------- Network (10.0.0.0/16) ----------------
+vpc_cidr              = "10.0.0.0/16"
+frontend_subnet_cidrs = ["10.0.1.0/24", "10.0.2.0/24"]
+compute_subnet_cidrs  = ["10.0.16.0/20", "10.0.32.0/20"]
+data_subnet_cidrs     = ["10.0.48.0/24", "10.0.49.0/24"]
+
+# One NAT gateway per AZ: losing one AZ does not cut outbound traffic in the other
+single_nat_gateway = false
+# Secrets Manager, STS and CloudWatch Logs calls stay inside the VPC
+enable_interface_endpoints = true
+
+# ---------------- EKS ----------------
+# Must match EKS_CLUSTER in the Jenkinsfile (mycompany-<env>-eks)
+cluster_name       = "mycompany-prod-eks"
+kubernetes_version = "1.35"
+
+# CHANGE ME: who may reach the Kubernetes API, e.g. ["<jenkins-public-ip>/32", "<your-ip>/32"]
+eks_public_access_cidrs = ["0.0.0.0/0"]
+
+# CHANGE ME: IAM principals that get cluster-admin, e.g. the Jenkins IAM user
+# cluster_admin_arns = ["arn:aws:iam::123456789012:user/jenkins"]
+cluster_admin_arns = []
+
+node_instance_types = ["m7i.large"]
+node_min_size       = 2
+node_max_size       = 4
+node_desired_size   = 2
+
+# ---------------- Database ----------------
+db_instance_class              = "db.t4g.medium"
+db_allocated_storage           = 50
+db_max_allocated_storage       = 200
+db_multi_az                    = true
+db_backup_retention_days       = 7
+db_deletion_protection         = true
+db_skip_final_snapshot         = false
+db_secret_recovery_window_days = 7
+
+# ---------------- Edge ----------------
+enable_waf = true

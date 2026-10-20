@@ -1,0 +1,20 @@
+# Terraform working files
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
