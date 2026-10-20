@@ -19,6 +19,7 @@ The application is deployed by the Jenkins pipeline in
 
 ```
 enterprise-hr-portal-infra/
+├── bootstrap/                    Run once: S3 state bucket + DynamoDB lock table
 ├── modules/                      Reusable building blocks
 │   ├── vpc/          VPC, 3 subnet tiers × 2 AZs, IGW, NAT, route tables, VPC endpoints
 │   ├── eks/          EKS cluster, managed node group, core add-ons, OIDC provider (IRSA), access entries
@@ -26,7 +27,8 @@ enterprise-hr-portal-infra/
 │   ├── rds/          RDS PostgreSQL, DB security group, credentials in Secrets Manager
 │   ├── eks-addons/   Helm: AWS Load Balancer Controller, Secrets Store CSI + AWS provider,
 │   │                 metrics-server, Cluster Autoscaler
-│   └── waf/          WAF web ACL (managed rules + rate limit) for the ALB
+│   ├── waf/          WAF web ACL (managed rules + rate limit) for the ALB
+│   └── s3/           Private, encrypted, HTTPS-only S3 bucket (state bucket and app buckets)
 └── environments/                 One folder = one environment = one state file
     ├── dev/   backend.tf  providers.tf  main.tf  variables.tf  outputs.tf  terraform.tfvars
     └── prod/  (same files; only backend.tf key and terraform.tfvars differ)
@@ -44,6 +46,7 @@ enterprise-hr-portal-infra/
 | Add-ons  | AWS Load Balancer Controller, Secrets Store CSI driver + AWS provider (secret sync enabled), metrics-server, Cluster Autoscaler |
 | Database | RDS PostgreSQL 16 (encrypted, private), DB subnet group, security group allowing 5432 only from EKS, Secrets Manager secret `enterprise-hr-portal/<env>/db` |
 | Edge     | WAF web ACL (prod), attached to the ALB through the app's Ingress annotation |
+| Storage  | Optional S3 buckets from `s3_buckets` in `terraform.tfvars` (none by default) |
 
 ### dev vs prod (`terraform.tfvars`)
 
@@ -69,7 +72,7 @@ Compute subnets are `/20` because the EKS VPC CNI gives every pod its own VPC IP
 
 ## Prerequisites
 
-- Terraform **1.10 or newer** (for S3 native state locking)
+- Terraform **1.10 or newer**
 - AWS CLI v2, logged in as an IAM user/role with admin rights (Terraform's Helm provider uses `aws eks get-token`)
 - `kubectl` (to check the cluster afterwards)
 
@@ -77,25 +80,54 @@ Compute subnets are `/20` because the EKS VPC CNI gives every pod its own VPC IP
 aws sts get-caller-identity   # check which account you are using
 ```
 
-## One-time setup: state bucket
+## One-time setup: remote state (S3 + DynamoDB)
 
-Create one S3 bucket for the Terraform state of both environments
-(bucket names are global, so add your account ID):
+Terraform state for every environment lives in one S3 bucket; a DynamoDB table holds the lock,
+so two people (or Jenkins and a person) can never run `apply` on the same environment at once.
 
-```bash
-export REGION=ap-south-1
-export BUCKET=enterprise-hr-portal-tfstate-$(aws sts get-caller-identity --query Account --output text)
-
-aws s3api create-bucket --bucket $BUCKET --region $REGION \
-  --create-bucket-configuration LocationConstraint=$REGION
-aws s3api put-bucket-versioning --bucket $BUCKET --versioning-configuration Status=Enabled
-aws s3api put-public-access-block --bucket $BUCKET \
-  --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-echo $BUCKET
+```
+S3 bucket  enterprise-hr-portal-tfstate-<account-id>   versioned, encrypted, private, HTTPS only
+  ├── dev/terraform.tfstate
+  └── prod/terraform.tfstate
+DynamoDB   enterprise-hr-portal-tf-locks               key LockID, on-demand, PITR, deletion protection
 ```
 
-Put the bucket name in `environments/dev/backend.tf` and `environments/prod/backend.tf`
-(replace `CHANGE-ME-enterprise-hr-portal-tfstate`).
+**1. Create them with the bootstrap configuration (once per AWS account):**
+
+```bash
+cd bootstrap
+terraform init
+terraform apply
+terraform output        # state_bucket, lock_table
+```
+
+**2. Put the bucket name in both backends** (`environments/dev/backend.tf` and
+`environments/prod/backend.tf`): replace `CHANGE-ME-enterprise-hr-portal-tfstate` with the
+`state_bucket` output. `dynamodb_table` already matches `lock_table`.
+
+**3. Keep the bootstrap state safe.** `bootstrap/terraform.tfstate` stays on your machine
+(it is git-ignored). Optionally move it into the new bucket too: add this to `bootstrap/providers.tf`
+and run `terraform init -migrate-state`:
+
+```hcl
+terraform {
+  backend "s3" {
+    bucket         = "<state_bucket>"
+    key            = "bootstrap/terraform.tfstate"
+    region         = "ap-south-1"
+    dynamodb_table = "enterprise-hr-portal-tf-locks"
+    encrypt        = true
+  }
+}
+```
+
+If a run is interrupted and leaves a lock behind, release it with
+`terraform force-unlock <LOCK_ID>` (the ID is shown in the error message).
+
+> Terraform 1.11+ prints a deprecation notice for `dynamodb_table`, because S3 can now lock by
+> itself (`use_lockfile = true`). DynamoDB locking still works. To switch later, add
+> `use_lockfile = true` next to `dynamodb_table`, run `terraform init -reconfigure`, and remove
+> `dynamodb_table` once every user and pipeline uses the new setting.
 
 ## Values to change in `terraform.tfvars`
 
@@ -103,7 +135,7 @@ Put the bucket name in `environments/dev/backend.tf` and `environments/prod/back
 |---------------------------|-----------|
 | `eks_public_access_cidrs` | `["<jenkins-public-ip>/32", "<your-ip>/32"]` (who may reach the Kubernetes API) |
 | `cluster_admin_arns`      | `["arn:aws:iam::<account-id>:user/<jenkins-iam-user>"]` so Jenkins can run `helm upgrade` |
-| `region`, `azs`           | Only if you don't use Mumbai (`ap-south-1`); also change `region` in `backend.tf` |
+| `region`, `azs`           | Only if you don't use Mumbai (`ap-south-1`); also change `region` in `backend.tf` and `bootstrap/variables.tf` |
 
 ## Create an environment
 
@@ -144,6 +176,32 @@ CSI driver, IRSA role, metrics-server, EKS access for Jenkins).
 
 The IRSA role trusts exactly namespace `hr-portal-<env>` and ServiceAccount `enterprise-hr-portal`,
 which is what the Helm chart and Jenkinsfile use. Keep those names in sync.
+
+## S3 buckets
+
+Add buckets per environment in `terraform.tfvars`; no code changes are needed:
+
+```hcl
+s3_buckets = {
+  documents = { app_access = true }          # app pods can read/write through their IRSA role
+  reports   = { expiration_days = 90 }       # objects are deleted after 90 days
+}
+```
+
+| Option                               | Default | Meaning |
+|--------------------------------------|---------|---------|
+| `app_access`                         | `false` | Grants the app's IRSA role `ListBucket`, `GetObject`, `PutObject`, `DeleteObject` |
+| `versioning`                         | `true`  | Keep previous versions of objects |
+| `noncurrent_version_expiration_days` | `30`    | Delete old versions after this many days |
+| `expiration_days`                    | none    | Delete objects this many days after upload |
+| `force_destroy`                      | `false` | Let `terraform destroy` remove a non-empty bucket (dev only) |
+
+Every bucket is private (public access blocked), encrypted (SSE-S3), HTTPS-only, with ACLs
+disabled. The real name is `enterprise-hr-portal-<env>-<key>-<account-id>`
+(see `terraform output s3_bucket_names`). Keys: lowercase letters, digits and hyphens, max 20 characters.
+
+If the application starts using a bucket, add its name to `config/env-<env>.yaml` in the deploy repo,
+for example `DOCUMENTS_BUCKET: "enterprise-hr-portal-dev-documents-<account-id>"`.
 
 ## Database credentials
 

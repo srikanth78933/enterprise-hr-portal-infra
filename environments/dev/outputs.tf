@@ -31,6 +31,11 @@ output "app_irsa_role_arn" {
   value = module.app_irsa.role_arn
 }
 
+output "s3_bucket_names" {
+  description = "Created S3 buckets: key => real bucket name"
+  value       = { for key, bucket in module.s3 : key => bucket.bucket_name }
+}
+
 output "waf_web_acl_arn" {
   value = var.enable_waf ? module.waf[0].web_acl_arn : null
 }

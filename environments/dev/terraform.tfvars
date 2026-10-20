@@ -46,3 +46,14 @@ db_secret_recovery_window_days = 0
 
 # ---------------- Edge ----------------
 enable_waf = false
+
+# ---------------- S3 buckets (optional) ----------------
+# Each entry creates a private, encrypted, HTTPS-only bucket named
+# enterprise-hr-portal-dev-<key>-<account-id>. Examples:
+#
+# s3_buckets = {
+#   documents = { app_access = true, force_destroy = true }        # app pods can read/write via IRSA
+#   reports   = { expiration_days = 90 }                           # objects deleted after 90 days
+#   exports   = { versioning = false, force_destroy = true }
+# }
+s3_buckets = {}

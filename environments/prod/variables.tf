@@ -122,3 +122,24 @@ variable "db_secret_recovery_window_days" {
 variable "enable_waf" {
   type = bool
 }
+
+# ---------------------------------------------------------------
+# S3 buckets (optional)
+# Key = short bucket name; the real name becomes <project>-<env>-<key>-<account-id>.
+# app_access = true lets the application pods read/write the bucket through their IRSA role.
+# ---------------------------------------------------------------
+variable "s3_buckets" {
+  type = map(object({
+    versioning                         = optional(bool, true)
+    force_destroy                      = optional(bool, false)
+    app_access                         = optional(bool, false)
+    expiration_days                    = optional(number)
+    noncurrent_version_expiration_days = optional(number, 30)
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for k in keys(var.s3_buckets) : can(regex("^[a-z0-9-]{1,20}$", k))])
+    error_message = "S3 bucket keys must be 1-20 characters: lowercase letters, digits and hyphens."
+  }
+}
