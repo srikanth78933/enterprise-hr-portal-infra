@@ -30,9 +30,10 @@ eks_public_access_cidrs = ["0.0.0.0/0"]
 cluster_admin_arns = []
 
 # Spot nodes: cheaper and use the separate Spot vCPU quota (set ON_DEMAND for steady workloads).
-# Several similar types give Spot more capacity pools to choose from.
+# Several types give Spot more capacity pools. This account is on the AWS Free plan, which only
+# allows Free Tier instance types (m7i-flex.large, c7i-flex.large, t3.small, ...).
 node_capacity_type  = "SPOT"
-node_instance_types = ["m7i.large", "m6i.large", "m5.large"]
+node_instance_types = ["m7i-flex.large", "c7i-flex.large"]
 node_min_size       = 2
 node_max_size       = 4
 node_desired_size   = 2
@@ -63,7 +64,7 @@ s3_buckets = {}
 
 # ---------------- Monitoring (ELK on one EC2) ----------------
 enable_elk           = true
-elk_instance_type    = "m7i.xlarge"
+elk_instance_type    = "m7i-flex.large"
 elk_data_volume_size = 100
 # Spot instance for ELK (cheaper; data stays on its separate EBS volume if AWS reclaims it)
 elk_use_spot = true

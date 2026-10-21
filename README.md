@@ -59,10 +59,10 @@ enterprise-hr-portal-infra/
 | NAT gateways         | 1 (shared)               | 2 (one per AZ)               |
 | Interface endpoints  | no                       | yes                          |
 | EKS cluster          | `mycompany-dev-eks`      | `mycompany-prod-eks`         |
-| Nodes                | `t3.medium`, 1–2         | `m7i.large`, 2–4             |
+| Nodes (Spot)         | `m7i-flex.large`, 1–2    | `m7i-flex.large`, 2–4        |
 | RDS                  | `db.t4g.micro`, single-AZ | `db.t4g.medium`, Multi-AZ, deletion protection, final snapshot |
 | WAF                  | off                      | on                           |
-| ELK monitoring EC2   | off                      | `m7i.xlarge`, 100 GiB data   |
+| ELK monitoring EC2   | off                      | `m7i-flex.large` (Spot), 100 GiB data |
 
 ### Subnet plan (prod; dev uses `10.1.x.x`)
 
@@ -224,7 +224,7 @@ With `enable_elk = true` (prod), Terraform creates everything the
 
 | Resource | Details |
 |----------|---------|
-| EC2 `enterprise-hr-portal-prod-elk` | Ubuntu 24.04, `m7i.xlarge`, first compute subnet, no public IP, IMDSv2, Docker + Compose + AWS CLI installed by user data |
+| EC2 `enterprise-hr-portal-prod-elk` | Ubuntu 24.04, `m7i-flex.large` (Spot), first compute subnet, no public IP, IMDSv2, Docker + Compose + AWS CLI installed by user data |
 | Data volume | Encrypted gp3 EBS (100 GiB) mounted at `/data`; kept if the instance is replaced |
 | Access | SSM Session Manager only (no SSH, no key pair) |
 | Security groups | 5044 (Logstash) and 9200 (Elasticsearch) from the EKS nodes only; 5601 from the Kibana ALB only |
