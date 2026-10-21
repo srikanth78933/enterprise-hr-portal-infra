@@ -60,7 +60,7 @@ enterprise-hr-portal-infra/
 | Interface endpoints  | no                       | yes                          |
 | EKS cluster          | `mycompany-dev-eks`      | `mycompany-prod-eks`         |
 | Nodes (Spot)         | `m7i-flex.large`, 1–2    | `m7i-flex.large`, 2–4        |
-| RDS                  | `db.t4g.micro`, single-AZ | `db.t4g.medium`, Multi-AZ, deletion protection, final snapshot |
+| RDS                  | `db.t4g.micro`, single-AZ | `db.t4g.micro`, single-AZ (Free plan; `db.t4g.medium` Multi-AZ after upgrade), deletion protection, final snapshot |
 | WAF                  | off                      | on                           |
 | ELK monitoring EC2   | `m7i-flex.large` (Spot), 30 GiB data | `m7i-flex.large` (Spot), 100 GiB data |
 
@@ -79,10 +79,25 @@ Compute subnets are `/20` because the EKS VPC CNI gives every pod its own VPC IP
 - Terraform **1.10 or newer**, AWS CLI v2, `kubectl` and `helm` on the machine that runs Terraform
   (the Jenkins server or your laptop)
 - An IAM user with admin rights. Whoever creates the cluster automatically gets cluster-admin on it.
-- **New AWS account:** check **Service Quotas → Amazon EC2 → Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances**.
-  New accounts can have a small vCPU limit. dev needs about 4 vCPUs (2 × `t3.medium`); prod needs about
-  12 (2 × `m7i.large` + the `m7i.xlarge` ELK server, more when the autoscaler adds nodes).
-  Request an increase before applying prod if the limit is lower.
+- **New AWS account:** read *AWS account limits* below before the first apply.
+
+## AWS account limits (new / Free plan accounts)
+
+This setup was built and tested on an AWS account on the **Free plan**. Its limits shaped some settings:
+
+| Limit | Effect | How this repo handles it |
+|-------|--------|--------------------------|
+| Only **Free Tier instance types** can be launched (`m7i-flex.large`, `c7i-flex.large`, `t3.small`, …) | Node group fails with *InvalidParameterCombination … not eligible for Free Tier* | Nodes and the ELK server use `m7i-flex.large` with `c7i-flex.large` as fallback |
+| **On-Demand vCPU quota** (8 on a new account) is shared with other EC2 servers (Jenkins, Nexus, SonarQube) | Node group fails with *VcpuLimitExceeded* | Nodes and the ELK server run on **Spot** (`node_capacity_type = "SPOT"`, `elk_use_spot = true`), which has its own quota |
+| **RDS**: no backup retention above 1 day, small instance classes, no Multi-AZ | *FreeTierRestrictionError* on `CreateDBInstance` | prod uses `db.t4g.micro`, single-AZ, 1-day backups; the production values are kept as comments in `environments/prod/terraform.tfvars` |
+
+Check your limits: **Service Quotas → Amazon EC2 → Running On-Demand / All Standard Spot Instance Requests**.
+dev needs about 6 vCPUs (2 nodes + ELK), prod about 6–10. After upgrading the account plan and raising the
+quota, switch back to `ON_DEMAND`, larger instance types and the commented RDS values.
+
+Spot capacity can be reclaimed by AWS with a 2-minute warning. The node group replaces the node, the
+app keeps running on its other replicas (3 pods, PodDisruptionBudget), and the ELK data stays on its
+separate EBS volume.
 
 ## Run with Jenkins (recommended)
 
@@ -261,7 +276,25 @@ kubectl get ingress -A          # wait until no ingress is left
 cd environments/dev && terraform destroy
 ```
 
-Prod has RDS deletion protection on; set `db_deletion_protection = false` and apply before destroying.
+Prod has RDS deletion protection on and keeps a final snapshot. For a full teardown, turn both off
+for that one run without changing the repo:
+
+```bash
+cd environments/prod
+terraform init -backend-config="bucket=enterprise-hr-portal-tfstate-<account-id>"
+terraform apply -target=module.rds.aws_db_instance.this \
+  -var db_deletion_protection=false -var db_skip_final_snapshot=true
+```
+
+Then run the pipeline with `prod` + `destroy`.
+
+After a destroy, check for leftovers that Terraform does not own:
+
+| Leftover | Why | Remove with |
+|----------|-----|-------------|
+| Secrets in their recovery window (prod: 7 days) | Names stay reserved, so recreating fails | `aws secretsmanager delete-secret --secret-id <name> --force-delete-without-recovery` |
+| CloudWatch log groups `/aws/eks/<cluster>/cluster` | Created by EKS itself | `aws logs delete-log-group --log-group-name /aws/eks/<cluster>/cluster` |
+| State bucket and lock table | Kept on purpose (≈ $0, needed for the next apply) | Delete only if you never plan to rebuild |
 
 ## Cost notes
 
