@@ -49,7 +49,7 @@ enterprise-hr-portal-infra/
 | Database | RDS PostgreSQL 16 (encrypted, private), DB subnet group, security group allowing 5432 only from EKS, Secrets Manager secret `enterprise-hr-portal/<env>/db` |
 | Edge     | WAF web ACL (prod), attached to the ALB through the app's Ingress annotation |
 | Storage  | Optional S3 buckets from `s3_buckets` in `terraform.tfvars` (none by default) |
-| Monitoring (prod) | ELK EC2 instance (private, SSM only), encrypted EBS data volume, passwords in Secrets Manager, config bucket, Kibana ALB limited to `kibana_allowed_cidrs` |
+| Monitoring | ELK EC2 instance (private, SSM only), encrypted EBS data volume, passwords in Secrets Manager, config bucket, Kibana ALB limited to `kibana_allowed_cidrs` |
 
 ### dev vs prod (`terraform.tfvars`)
 
@@ -62,7 +62,7 @@ enterprise-hr-portal-infra/
 | Nodes (Spot)         | `m7i-flex.large`, 1–2    | `m7i-flex.large`, 2–4        |
 | RDS                  | `db.t4g.micro`, single-AZ | `db.t4g.medium`, Multi-AZ, deletion protection, final snapshot |
 | WAF                  | off                      | on                           |
-| ELK monitoring EC2   | off                      | `m7i-flex.large` (Spot), 100 GiB data |
+| ELK monitoring EC2   | `m7i-flex.large` (Spot), 30 GiB data | `m7i-flex.large` (Spot), 100 GiB data |
 
 ### Subnet plan (prod; dev uses `10.1.x.x`)
 
@@ -217,9 +217,9 @@ disabled. The real name is `enterprise-hr-portal-<env>-<key>-<account-id>`
 If the application starts using a bucket, add its name to `config/env-<env>.yaml` in the deploy repo,
 for example `DOCUMENTS_BUCKET: "enterprise-hr-portal-dev-documents-<account-id>"`.
 
-## ELK monitoring server (prod)
+## ELK monitoring server
 
-With `enable_elk = true` (prod), Terraform creates everything the
+With `enable_elk = true` (dev and prod), Terraform creates everything the
 [monitoring repo](https://github.com/srikanth78933/enterprise-hr-portal-monitoring) needs:
 
 | Resource | Details |
