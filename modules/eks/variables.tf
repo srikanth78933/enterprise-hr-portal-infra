@@ -52,3 +52,14 @@ variable "node_disk_size" {
   type        = number
   default     = 30
 }
+
+variable "node_capacity_type" {
+  description = "ON_DEMAND or SPOT (Spot is cheaper and uses the separate Spot vCPU quota, but nodes can be reclaimed)"
+  type        = string
+  default     = "ON_DEMAND"
+
+  validation {
+    condition     = contains(["ON_DEMAND", "SPOT"], var.node_capacity_type)
+    error_message = "node_capacity_type must be ON_DEMAND or SPOT."
+  }
+}

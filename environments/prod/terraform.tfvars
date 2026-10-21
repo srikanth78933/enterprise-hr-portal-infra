@@ -29,7 +29,10 @@ eks_public_access_cidrs = ["0.0.0.0/0"]
 # cluster_admin_arns = ["arn:aws:iam::123456789012:user/jenkins"]
 cluster_admin_arns = []
 
-node_instance_types = ["m7i.large"]
+# Spot nodes: cheaper and use the separate Spot vCPU quota (set ON_DEMAND for steady workloads).
+# Several similar types give Spot more capacity pools to choose from.
+node_capacity_type  = "SPOT"
+node_instance_types = ["m7i.large", "m6i.large", "m5.large"]
 node_min_size       = 2
 node_max_size       = 4
 node_desired_size   = 2
@@ -62,5 +65,7 @@ s3_buckets = {}
 enable_elk           = true
 elk_instance_type    = "m7i.xlarge"
 elk_data_volume_size = 100
+# Spot instance for ELK (cheaper; data stays on its separate EBS volume if AWS reclaims it)
+elk_use_spot = true
 # CHANGE ME: who may open Kibana, e.g. ["<your-ip>/32"]
 kibana_allowed_cidrs = ["0.0.0.0/0"]

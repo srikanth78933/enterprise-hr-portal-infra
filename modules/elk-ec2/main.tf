@@ -204,6 +204,13 @@ resource "aws_instance" "this" {
   vpc_security_group_ids = [aws_security_group.elk.id]
   iam_instance_profile   = aws_iam_instance_profile.this.name
 
+  dynamic "instance_market_options" {
+    for_each = var.use_spot ? [1] : []
+    content {
+      market_type = "spot"
+    }
+  }
+
   user_data = templatefile("${path.module}/user-data.sh.tftpl", {
     volume_id         = aws_ebs_volume.data.id
     volume_id_no_dash = replace(aws_ebs_volume.data.id, "-", "")

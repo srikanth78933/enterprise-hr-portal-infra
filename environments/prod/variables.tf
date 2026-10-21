@@ -81,6 +81,12 @@ variable "node_desired_size" {
   type = number
 }
 
+variable "node_capacity_type" {
+  description = "ON_DEMAND or SPOT"
+  type        = string
+  default     = "ON_DEMAND"
+}
+
 # ---------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------
@@ -167,4 +173,10 @@ variable "kibana_allowed_cidrs" {
   description = "CIDRs allowed to open Kibana"
   type        = list(string)
   default     = []
+}
+
+variable "elk_use_spot" {
+  description = "Run the ELK instance as a Spot instance"
+  type        = bool
+  default     = false
 }

@@ -40,6 +40,7 @@ module "eks" {
   node_min_size        = var.node_min_size
   node_max_size        = var.node_max_size
   node_desired_size    = var.node_desired_size
+  node_capacity_type   = var.node_capacity_type
 }
 
 # ---------------------------------------------------------------
@@ -168,6 +169,7 @@ module "elk" {
   kibana_allowed_cidrs      = var.kibana_allowed_cidrs
   instance_type             = var.elk_instance_type
   data_volume_size          = var.elk_data_volume_size
+  use_spot                  = var.elk_use_spot
   config_bucket_name        = "${local.name}-elk-config-${data.aws_caller_identity.current.account_id}"
   secret_name               = "${var.project}/${var.environment}/elk"
 }

@@ -63,3 +63,9 @@ variable "secret_recovery_window_days" {
   type    = number
   default = 7
 }
+
+variable "use_spot" {
+  description = "Run the ELK instance as a Spot instance (cheaper; AWS can reclaim it, the data volume is kept)"
+  type        = bool
+  default     = false
+}

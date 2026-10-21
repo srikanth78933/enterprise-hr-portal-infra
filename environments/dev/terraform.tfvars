@@ -29,7 +29,10 @@ eks_public_access_cidrs = ["0.0.0.0/0"]
 # cluster_admin_arns = ["arn:aws:iam::123456789012:user/jenkins"]
 cluster_admin_arns = []
 
-node_instance_types = ["t3.medium"]
+# Spot nodes: cheaper and use the separate Spot vCPU quota (set ON_DEMAND for steady workloads).
+# Several similar types give Spot more capacity pools to choose from.
+node_capacity_type  = "SPOT"
+node_instance_types = ["t3.medium", "t3a.medium"]
 node_min_size       = 1
 node_max_size       = 2
 node_desired_size   = 2
