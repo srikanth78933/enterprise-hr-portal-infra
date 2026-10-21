@@ -172,4 +172,6 @@ module "elk" {
   use_spot                  = var.elk_use_spot
   config_bucket_name        = "${local.name}-elk-config-${data.aws_caller_identity.current.account_id}"
   secret_name               = "${var.project}/${var.environment}/elk"
+  # Same recovery window as the DB secret: 0 days in dev (fast recreate), 7 days in prod
+  secret_recovery_window_days = var.db_secret_recovery_window_days
 }

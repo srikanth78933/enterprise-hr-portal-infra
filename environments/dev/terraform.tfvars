@@ -62,6 +62,11 @@ enable_waf = false
 # }
 s3_buckets = {}
 
-# ---------------- Monitoring ----------------
-# ELK runs in prod only
-enable_elk = false
+# ---------------- Monitoring (ELK on one EC2) ----------------
+enable_elk           = true
+elk_instance_type    = "m7i-flex.large"
+elk_data_volume_size = 30
+# Spot instance for ELK (cheaper; data stays on its separate EBS volume if AWS reclaims it)
+elk_use_spot = true
+# Who may open Kibana (your public IP; update it if your IP changes)
+kibana_allowed_cidrs = ["106.222.202.92/32"]
