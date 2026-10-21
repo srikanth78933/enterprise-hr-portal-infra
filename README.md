@@ -19,7 +19,8 @@ The application is deployed by the Jenkins pipeline in
 
 ```
 enterprise-hr-portal-infra/
-├── bootstrap/                    Run once: S3 state bucket + DynamoDB lock table
+├── Jenkinsfile                   plan / apply / destroy for dev or prod (creates the state backend)
+├── bootstrap/                    Optional: create the S3 state bucket + DynamoDB lock table by hand
 ├── modules/                      Reusable building blocks
 │   ├── vpc/          VPC, 3 subnet tiers × 2 AZs, IGW, NAT, route tables, VPC endpoints
 │   ├── eks/          EKS cluster, managed node group, core add-ons, OIDC provider (IRSA), access entries
@@ -75,54 +76,61 @@ Compute subnets are `/20` because the EKS VPC CNI gives every pod its own VPC IP
 
 ## Prerequisites
 
-- Terraform **1.10 or newer**
-- AWS CLI v2, logged in as an IAM user/role with admin rights (Terraform's Helm provider uses `aws eks get-token`)
-- `kubectl` (to check the cluster afterwards)
+- Terraform **1.10 or newer**, AWS CLI v2, `kubectl` and `helm` on the machine that runs Terraform
+  (the Jenkins server or your laptop)
+- An IAM user with admin rights. Whoever creates the cluster automatically gets cluster-admin on it.
+- **New AWS account:** check **Service Quotas → Amazon EC2 → Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances**.
+  New accounts can have a small vCPU limit. dev needs about 4 vCPUs (2 × `t3.medium`); prod needs about
+  12 (2 × `m7i.large` + the `m7i.xlarge` ELK server, more when the autoscaler adds nodes).
+  Request an increase before applying prod if the limit is lower.
 
-```bash
-aws sts get-caller-identity   # check which account you are using
-```
+## Run with Jenkins (recommended)
 
-## One-time setup: remote state (S3 + DynamoDB)
+The `Jenkinsfile` runs Terraform for one environment:
+
+| Parameter     | Values | Meaning |
+|---------------|--------|---------|
+| `ENVIRONMENT` | `dev`, `prod` | Folder under `environments/` |
+| `ACTION`      | `plan` | Show what would change; nothing is created |
+|               | `apply` | Plan → manual approval → create/update |
+|               | `destroy` | Remove the app's ALB → plan destroy → manual approval → destroy |
+
+Stages: check tools and account → **create the state bucket and lock table if missing** → init/validate →
+plan (saved as a build artifact) → approve → apply → outputs.
+
+Jenkins setup:
+
+1. Terraform on the Jenkins server:
+   ```bash
+   TF_VERSION=1.13.4
+   curl -fsSLo /tmp/terraform.zip https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
+   sudo unzip -o /tmp/terraform.zip -d /usr/local/bin && rm /tmp/terraform.zip
+   ```
+2. Credentials `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (Secret text), as for the deploy pipeline.
+3. **New Item** → `enterprise-hr-portal-infra` → **Pipeline** → *Pipeline script from SCM* →
+   `https://github.com/srikanth78933/enterprise-hr-portal-infra.git`, branch `*/main`, script path `Jenkinsfile`.
+4. **Build Now** once (Jenkins learns the parameters; this first run is a dev `plan`).
+   Then **Build with Parameters** → `dev` + `apply`.
+
+The first dev apply takes about 25 minutes (EKS ~10 min, RDS ~10 min).
+
+## Remote state (S3 + DynamoDB)
 
 Terraform state for every environment lives in one S3 bucket; a DynamoDB table holds the lock,
 so two people (or Jenkins and a person) can never run `apply` on the same environment at once.
 
 ```
-S3 bucket  enterprise-hr-portal-tfstate-<account-id>   versioned, encrypted, private, HTTPS only
+S3 bucket  enterprise-hr-portal-tfstate-<account-id>   versioned, encrypted, private
   ├── dev/terraform.tfstate
   └── prod/terraform.tfstate
 DynamoDB   enterprise-hr-portal-tf-locks               key LockID, on-demand, PITR, deletion protection
 ```
 
-**1. Create them with the bootstrap configuration (once per AWS account):**
+**The Jenkinsfile creates both automatically** on its first run. The bucket name contains the
+account ID, so `backend.tf` doesn't hard-code it; it is passed at `terraform init` time.
 
-```bash
-cd bootstrap
-terraform init
-terraform apply
-terraform output        # state_bucket, lock_table
-```
-
-**2. Put the bucket name in both backends** (`environments/dev/backend.tf` and
-`environments/prod/backend.tf`): replace `CHANGE-ME-enterprise-hr-portal-tfstate` with the
-`state_bucket` output. `dynamodb_table` already matches `lock_table`.
-
-**3. Keep the bootstrap state safe.** `bootstrap/terraform.tfstate` stays on your machine
-(it is git-ignored). Optionally move it into the new bucket too: add this to `bootstrap/providers.tf`
-and run `terraform init -migrate-state`:
-
-```hcl
-terraform {
-  backend "s3" {
-    bucket         = "<state_bucket>"
-    key            = "bootstrap/terraform.tfstate"
-    region         = "ap-south-1"
-    dynamodb_table = "enterprise-hr-portal-tf-locks"
-    encrypt        = true
-  }
-}
-```
+Alternatively, create them with Terraform from the `bootstrap/` folder (same names, so both ways are
+compatible): `cd bootstrap && terraform init && terraform apply`.
 
 If a run is interrupted and leaves a lock behind, release it with
 `terraform force-unlock <LOCK_ID>` (the ID is shown in the error message).
@@ -136,18 +144,21 @@ If a run is interrupted and leaves a lock behind, release it with
 
 | Value                     | Set it to |
 |---------------------------|-----------|
-| `eks_public_access_cidrs` | `["<jenkins-public-ip>/32", "<your-ip>/32"]` (who may reach the Kubernetes API) |
-| `cluster_admin_arns`      | `["arn:aws:iam::<account-id>:user/<jenkins-iam-user>"]` so Jenkins can run `helm upgrade` |
-| `region`, `azs`           | Only if you don't use Mumbai (`ap-south-1`); also change `region` in `backend.tf` and `bootstrap/variables.tf` |
+| `eks_public_access_cidrs` | Who may reach the Kubernetes API. `0.0.0.0/0` works (IAM login is still required); tighter: `["<jenkins-public-ip>/32", "<your-ip>/32"]` |
+| `cluster_admin_arns`      | Extra IAM users/roles that need cluster-admin. Leave empty if the same IAM user runs Terraform and the app pipeline. |
+| `kibana_allowed_cidrs` (prod) | `["<your-ip>/32"]` |
+| `region`, `azs`           | Only if you don't use Mumbai (`ap-south-1`); also change `region` in `backend.tf` and the Jenkinsfiles |
 
-## Create an environment
+## Run manually (without Jenkins)
 
 ```bash
 cd environments/dev          # or environments/prod
-terraform init
+terraform init -backend-config="bucket=enterprise-hr-portal-tfstate-$(aws sts get-caller-identity --query Account --output text)"
 terraform plan -out=tfplan
-terraform apply tfplan       # about 20–25 minutes (EKS ~10 min, RDS ~10 min)
+terraform apply tfplan
 ```
+
+(Create the state bucket and table first, with the Jenkins pipeline or `bootstrap/`.)
 
 Check the cluster:
 
@@ -238,8 +249,11 @@ Terraform generates a random password, creates the RDS instance with it and stor
 
 ## Destroy an environment
 
-The ALB is created by the AWS Load Balancer Controller, not by Terraform. Remove the app first,
-otherwise the ALB is left behind and the VPC cannot be deleted:
+With Jenkins: **Build with Parameters** → environment + `destroy`. The pipeline removes the app's
+Helm release (and with it the ALB) before destroying.
+
+Manually: the ALB is created by the AWS Load Balancer Controller, not by Terraform. Remove the app
+first, otherwise the ALB is left behind and the VPC cannot be deleted:
 
 ```bash
 helm uninstall enterprise-hr-portal -n hr-portal-dev
